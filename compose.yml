@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: resume_tailor
+      POSTGRES_USER: tailor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run setup script first}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tailor -d resume_tailor"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  document:
+    build: ./services/document
+    environment:
+      OCR_LANGUAGES: eng+tha
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://tailor:${POSTGRES_PASSWORD}@postgres:5432/resume_tailor
+      API_TOKEN: ${API_TOKEN:?Run setup script first}
+      PORT: 3010
+      STORAGE_DIR: /data
+      DOCUMENT_URL: http://document:8002
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b-q4_K_M}
+      OLLAMA_CONTEXT: ${OLLAMA_CONTEXT:-8192}
+      JOB_WATCHER_BASE_URL: ${JOB_WATCHER_BASE_URL:-}
+      JOB_WATCHER_TOKEN: ${JOB_WATCHER_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CHROMIUM_NO_SANDBOX: "true"
+    volumes:
+      - files:/data
+    ports:
+      - "127.0.0.1:3010:3010"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      document:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3010/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:5180:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  db:
+  files:

@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model Record {
+  id String @id @default(uuid())
+  kind String
+  data Json
+  createdAt DateTime @default(now())
+  @@index([kind, createdAt])
+}
+model Task {
+  id String @id @default(uuid())
+  type String
+  status String @default("queued")
+  input Json
+  output Json?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+}

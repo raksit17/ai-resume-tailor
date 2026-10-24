@@ -1,0 +1,22 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {profileSchema,tailoredSchema,templateSchema,defaultTemplate,truthGuard,matchSkills} from '../src/schema';
+import {renderHTML,renderDOCX} from '../src/render';
+import {publicGet} from '../src/net';
+const profile=profileSchema.parse({name:'Example <script>',email:'a@example.test',phone:'',location:'Bangkok',links:[],facts:[{id:'f1',section:'work',group:'Example Company',heading:'Backend Developer | 2020–2023',detail:'Built Node.js APIs for 10 projects',source:'CV page 1',verified:true},{id:'f2',section:'skills',group:'',heading:'React',detail:'React',source:'Unconfirmed',verified:false}]});
+const resume=tailoredSchema.parse({targetRole:'Full Stack Developer',summary:{text:'Built Node.js APIs for 10 projects',sourceFactIds:['f1']},items:[{sourceFactId:'f1',text:'Built Node.js APIs for 10 projects'}],notes:[]});
+test('confirmed facts are accepted',()=>assert.deepEqual(truthGuard(profile,resume),[]));
+test('unverified skills are rejected even when JD asks for them',()=>assert.throws(()=>truthGuard(profile,{...resume,items:[{sourceFactId:'f2',text:'React'}]}),/Unverified/));
+test('unknown evidence cannot be cited',()=>assert.throws(()=>truthGuard(profile,{...resume,summary:{text:'Expert React developer',sourceFactIds:['absent']}}),/unknown/));
+test('invented metrics are rejected',()=>assert.throws(()=>truthGuard(profile,{...resume,items:[{sourceFactId:'f1',text:'Improved latency by 40%'}]}),/Unsupported number/));
+test('rewrites require semantic review',()=>assert.equal(truthGuard(profile,{...resume,items:[{sourceFactId:'f1',text:'Developed Node.js APIs'}]}).length,1));
+test('duplicate refs rejected',()=>assert.throws(()=>truthGuard(profile,{...resume,items:[...resume.items,...resume.items]}),/Duplicate/));
+test('template CSS injection blocked',()=>assert.equal(templateSchema.safeParse({...defaultTemplate,accent:'red; background:url(https://evil.test)'}).success,false));
+test('unreasonable font size rejected',()=>assert.equal(templateSchema.safeParse({...defaultTemplate,bodySize:3}).success,false));
+test('template duplicate sections rejected',()=>assert.equal(templateSchema.safeParse({...defaultTemplate,sections:['skills','skills']}).success,false));
+test('HTML escapes user text and preserves actual employment titles',()=>{const html=renderHTML(profile,resume,defaultTemplate);assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('Backend Developer | 2020–2023'));});
+test('matching excludes unconfirmed React and avoids substring matches',()=>{const result=matchSkills(profile,{company:'X',title:'Engineer',location:'',required:['Node.js','React','Go'],preferred:[],responsibilities:[]});assert.deepEqual(result.matched,['Node.js']);assert.deepEqual(result.missing,['React','Go']);});
+test('DOCX is a real ZIP based Office document',async()=>{const b=await renderDOCX(profile,resume,defaultTemplate);assert.equal(b.subarray(0,2).toString(),'PK');assert.ok(b.length>1000);});
+test('URL fetch blocks loopback and plaintext',async()=>{await assert.rejects(publicGet('https://127.0.0.1/'),/blocked/);await assert.rejects(publicGet('http://example.com/'),/HTTPS/);await assert.rejects(publicGet('https://user:pass@example.com/'),/HTTPS/);});
+
+test('numeric substring is not accepted as evidence',()=>assert.throws(()=>truthGuard(profile,{...resume,items:[{sourceFactId:'f1',text:'Built 1 project'}]}),/Unsupported number/));
