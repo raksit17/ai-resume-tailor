@@ -9,6 +9,7 @@ import {ai} from './ai';
 import {importResumeFacts} from './document-import';
 import {templateFromLayout} from './template-extraction';
 import {reconcileTailoredDraft} from './tailor-reconcile';
+import {recoverResumeFromText} from './resume-recovery';
 import {buildTailorPayload,TAILOR_INSTRUCTION} from './tailor-payload';
 import {defaultTemplate,profileSchema,factSchema,templateSchema,jobSchema,tailoredSchema,truthGuard,matchSkills} from './schema';
 import {renderHTML,renderPDF,renderDOCX} from './render';
@@ -56,6 +57,30 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   const ids=b.profile.facts.map(f=>f.id);if(new Set(ids).size!==ids.length)throw new BadRequestException('Fact IDs must be unique');
   return this.put('profile',{...b,confirmedAt:new Date().toISOString()});
  }
+ async restructureImport(id:string){
+  const original=await this.get(id,'import');
+  const extracted=original.data.extraction;
+  if(!extracted?.text?.trim())throw new BadRequestException('Original extracted text is missing. Re-upload the PDF.');
+  const recovered=recoverResumeFromText(extracted.text,extracted.textPages);
+  const oldTemplate=await this.get(original.data.templateId,'template');
+  // Old imports predate the image extractor: re-read only the saved original
+  // asset when necessary; do not ask the user to upload it again.
+  let profilePhoto=oldTemplate.data.profilePhoto||extracted.profilePhoto||null;
+  if(!profilePhoto&&original.data.assetId){
+   try{profilePhoto=(await this.parseAsset(original.data.assetId)).profilePhoto||null;}
+   catch{recovered.warnings.push('Could not restore the embedded profile photo from the original asset.');}
+  }
+  // Copy, never overwrite existing imports or verified Master Resume versions.
+  const template=await this.put('template',{...oldTemplate.data,profilePhoto});
+  const warnings=[...recovered.warnings,'Original PDF and existing confirmed profiles were not modified.'];
+  const fresh=await this.put('import',{
+   profile:recovered.profile,templateId:template.id,assetId:original.data.assetId,
+   extraction:extracted,warnings,
+   diagnostics:{contentChunks:0,fallbackChunks:0,designMethod:oldTemplate.data.designMethod||'geometry',recoveredFacts:recovered.profile.facts.length},
+   parentImportId:id,promptVersion:'deterministic-restructure-v1'
+  });
+  return {importId:fresh.id,templateId:template.id,recoveredFacts:recovered.profile.facts.length};
+ }
  async queueImport(body:unknown){const b=z.object({assetId:uid}).parse(body);await this.get(b.assetId,'asset');return this.enqueue('import',b);}
  async queueJob(body:unknown){const b=z.object({text:z.string().max(40000).default(''),url:z.string().url().optional(),assetId:uid.optional()}).parse(body);if(!b.text.trim()&&!b.url&&!b.assetId)throw new BadRequestException('Provide a job ad');if(b.assetId)await this.get(b.assetId,'asset');return this.enqueue('analyze',b);}
  async queueTailor(body:unknown){const b=z.object({profileId:uid,jobId:uid,templateId:uid,prompt:z.string().max(4000).default('Write a professional English resume'),maxPages:z.number().int().min(1).max(5).default(2)}).parse(body);
@@ -64,7 +89,7 @@ export class Store implements OnModuleInit,OnModuleDestroy{
  async revise(id:string,body:unknown){const b=z.object({prompt:z.string().min(1).max(4000),templateId:uid.optional()}).parse(body);const old=await this.get(id,'resume');if(b.templateId)await this.get(b.templateId,'template');return this.enqueue('tailor',{...old.data.request,prompt:b.prompt,templateId:b.templateId||old.data.request.templateId,parentId:id,previous:old.data.tailored});}
  async approve(id:string,body:unknown){z.object({reviewedAllClaims:z.literal(true)}).parse(body);const r=await this.get(id,'resume');truthGuard(r.data.profile,r.data.tailored);return this.put('approval',{resumeId:id,reviewedAt:new Date().toISOString()});}
  async export(id:string,body:unknown){const b=z.object({format:z.enum(['pdf','docx'])}).parse(body);await this.get(id,'resume');const approvals=await this.db.record.findFirst({where:{kind:'approval',data:{path:['resumeId'],equals:id}}});if(!approvals)throw new BadRequestException('Review and approve this exact resume revision before export');return this.enqueue('export',{resumeId:id,...b});}
- async preview(id:string){const r=await this.get(id,'resume');return {html:renderHTML(r.data.profile,r.data.tailored,r.data.template.config)};}
+ async preview(id:string){const r=await this.get(id,'resume');return {html:renderHTML(r.data.profile,r.data.tailored,r.data.template.config,r.data.template.profilePhoto)};}
  async watcherList(query:Record<string,string>){const q=z.object({search:z.string().max(100).default(''),page:z.coerce.number().int().min(1).default(1)}).parse(query);return this.watcher(`/jobs?hours=720&limit=25&page=${q.page}&search=${encodeURIComponent(q.search)}`);}
  async watcher(route:string){const base=process.env.JOB_WATCHER_BASE_URL;if(!base)throw new BadRequestException('Set JOB_WATCHER_BASE_URL in .env');const res=await fetch(base.replace(/\/$/,'')+route,{headers:process.env.JOB_WATCHER_TOKEN?{Authorization:`Bearer ${process.env.JOB_WATCHER_TOKEN}`}:{},signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`Job-Watcher HTTP ${res.status}`);return res.json() as Promise<any>;}
  async watcherImport(body:unknown){const b=z.object({externalId:z.string().min(1).max(200)}).parse(body);const job=await this.watcher('/jobs/'+encodeURIComponent(b.externalId));
@@ -104,7 +129,7 @@ export class Store implements OnModuleInit,OnModuleDestroy{
      warnings.push(`Template AI refinement failed: ${(e as Error).message.slice(0,200)}. Geometry-based template was retained.`);
     }
    }
-   const t=await this.put('template',{config:design,sourceAssetId:input.assetId,measurements:extracted.layout,warnings,designMethod});
+   const t=await this.put('template',{config:design,sourceAssetId:input.assetId,profilePhoto:extracted.profilePhoto||null,measurements:extracted.layout,warnings,designMethod});
    const imported=await this.put('import',{
     profile:content.profile,templateId:t.id,assetId:input.assetId,extraction:extracted,
     warnings,diagnostics:{contentChunks:content.chunksProcessed,fallbackChunks:content.fallbackCount,designMethod},
@@ -122,6 +147,7 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   if(type==='tailor'){
    const p=await this.get(input.profileId,'profile');const j=await this.get(input.jobId,'job');const t=await this.get(input.templateId,'template');
    const profile=profileSchema.parse(p.data.profile);const verified=profile.facts.filter(f=>f.verified);if(!verified.length)throw new Error('Confirm at least one fact first');
+   if(verified.every(f=>/unparsed original text|original text.*review/i.test(f.heading)||f.detail.length>1500))throw new Error('Only unparsed PDF-page evidence is verified. Open ประวัติจริง, choose the original import and click จัดโครงสร้างจาก PDF เดิม, then verify work, skills and education facts before Generate.');
    const compact=buildTailorPayload(profile,j.data,input.prompt,input.maxPages,input.previous||null);
    const out=await ai(tailoredSchema,TAILOR_INSTRUCTION,compact.data,[],'tailor');
    const {tailored,warnings:reconciliationWarnings}=reconcileTailoredDraft(profile,out.value);
@@ -130,7 +156,7 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   }
   if(type==='export'){
    const r=await this.get(input.resumeId,'resume');const data=r.data;truthGuard(data.profile,data.tailored);
-   const buffer=input.format==='pdf'?await renderPDF(renderHTML(data.profile,data.tailored,data.template.config)):await renderDOCX(data.profile,data.tailored,data.template.config);
+   const buffer=input.format==='pdf'?await renderPDF(renderHTML(data.profile,data.tailored,data.template.config,data.template.profilePhoto)):await renderDOCX(data.profile,data.tailored,data.template.config);
    if(input.format==='pdf'){const form=new FormData();form.append('file',new Blob([new Uint8Array(buffer)],{type:'application/pdf'}),'resume.pdf');const res=await fetch(`${documentURL}/inspect`,{method:'POST',body:form,signal:AbortSignal.timeout(30000)});if(!res.ok)throw new Error('Could not validate PDF');const check=await res.json() as any;if(check.pages>data.request.maxPages)throw new Error(`PDF is ${check.pages} pages; requested maximum ${data.request.maxPages}. Shorten content or adjust the template.`);if(!check.text.trim())throw new Error('Generated PDF has no selectable text');}
    const file=randomUUID()+'.'+input.format;await writeFile(path.join(storeRoot,file),buffer);
    const safe=(s:string)=>s.replace(/[^\p{L}\p{N}_-]/gu,'_').slice(0,60);
@@ -148,7 +174,7 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   }
   if(type==='compare'){
    const r=await this.get(input.resumeId,'resume');const source=r.data.template.sourceAssetId;if(!source)throw new Error('Template has no original document');
-   const original=await this.bytes(source);const pdf=await renderPDF(renderHTML(r.data.profile,r.data.tailored,r.data.template.config));const form=new FormData();form.append('original',new Blob([new Uint8Array(original.buffer)]),original.name);form.append('generated',new Blob([new Uint8Array(pdf)]),'resume.pdf');
+   const original=await this.bytes(source);const pdf=await renderPDF(renderHTML(r.data.profile,r.data.tailored,r.data.template.config,r.data.template.profilePhoto));const form=new FormData();form.append('original',new Blob([new Uint8Array(original.buffer)]),original.name);form.append('generated',new Blob([new Uint8Array(pdf)]),'resume.pdf');
    const res=await fetch(`${documentURL}/compare`,{method:'POST',body:form,signal:AbortSignal.timeout(30000)});if(!res.ok)throw new Error(await res.text());return res.json();
   }
   throw new Error('Unknown task type');

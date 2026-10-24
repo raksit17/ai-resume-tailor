@@ -20,3 +20,17 @@ test('DOCX is a real ZIP based Office document',async()=>{const b=await renderDO
 test('URL fetch blocks loopback and plaintext',async()=>{await assert.rejects(publicGet('https://127.0.0.1/'),/blocked/);await assert.rejects(publicGet('http://example.com/'),/HTTPS/);await assert.rejects(publicGet('https://user:pass@example.com/'),/HTTPS/);});
 
 test('numeric substring is not accepted as evidence',()=>assert.throws(()=>truthGuard(profile,{...resume,items:[{sourceFactId:'f1',text:'Built 1 project'}]}),/Unsupported number/));
+
+test('rendered legacy PDF does not repeat summary or print importer review placeholders',()=>{
+ const original=profileSchema.parse({name:'Example',email:'',phone:'',location:'',links:[],facts:[
+  {id:'legacy',section:'summary',group:'Page 2',heading:'Unparsed original text — review required',
+   detail:'Original education text',source:'Original education text',verified:true}
+ ]});
+ const tailored=tailoredSchema.parse({targetRole:'Engineer',
+  summary:{text:'Original education text',sourceFactIds:['legacy']},
+  items:[{sourceFactId:'legacy',text:'Original education text'}],notes:[]});
+ const html=renderHTML(original,tailored,defaultTemplate,'aGVsbG8=');
+ assert.equal(html.split('Original education text').length-1,1);
+ assert.equal(html.includes('Unparsed original text — review required'),false);
+ assert.ok(html.includes('class="portrait"'));
+});

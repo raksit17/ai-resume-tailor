@@ -4,6 +4,7 @@ import fitz
 from docx import Document
 from fastapi.testclient import TestClient
 from main import app, extract
+from PIL import Image
 
 class DocumentTests(unittest.TestCase):
     def setUp(self):
@@ -21,6 +22,17 @@ class DocumentTests(unittest.TestCase):
         self.assertTrue(r['previews'])
         self.assertTrue(r['layout']['pages'][0]['drawings'])
         self.assertEqual(r['layout']['pages'][0]['spans'][0]['size'], 22)
+    def test_embedded_header_photo_is_recovered(self):
+        doc = fitz.open()
+        p = doc.new_page()
+        p.insert_text((40,60), "Example Engineer")
+        image = Image.new('RGB',(100,100),(28,85,120))
+        b = io.BytesIO()
+        image.save(b,format='PNG')
+        p.insert_image(fitz.Rect(470,35,545,110),stream=b.getvalue())
+        data = extract(doc.tobytes(),'profile.pdf')
+        self.assertIsInstance(data['profilePhoto'],str)
+        self.assertGreater(len(data['profilePhoto']),100)
     def test_docx_styles_and_tables(self):
         d = Document()
         d.add_paragraph('Actual developer', 'Title')

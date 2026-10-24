@@ -21,6 +21,31 @@ def png64(image):
     image.convert("RGB").save(out, format="PNG")
     return base64.b64encode(out.getvalue()).decode()
 
+def extract_profile_photo(doc):
+    if not len(doc):
+        return None
+    page = doc[0]
+    for info in page.get_image_info(xrefs=True)[:30]:
+        xref = info.get("xref", 0)
+        bbox = info.get("bbox", (0, 0, 0, 0))
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        if not xref or min(info.get("width", 0), info.get("height", 0)) < 64:
+            continue
+        if not (w >= 28 and h >= 28 and bbox[0] > page.rect.width * .55 and bbox[1] < page.rect.height * .3):
+            continue
+        if max(w, h) > page.rect.width * .4:
+            continue
+        try:
+            im = Image.open(io.BytesIO(doc.extract_image(xref)["image"])).convert("RGB")
+            im.thumbnail((280, 280))
+            out = io.BytesIO()
+            im.save(out, format="PNG")
+            if out.tell() <= 250000:
+                return base64.b64encode(out.getvalue()).decode()
+        except Exception:
+            continue
+    return None
+
 def render_page(page):
     pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
     return Image.open(io.BytesIO(pix.tobytes("png")))
@@ -37,6 +62,7 @@ def extract(data, name):
         if len(doc) > MAX_PAGES:
             raise ValueError(f"Maximum {MAX_PAGES} pages")
         pages, texts, previews, warnings = [], [], [], []
+        photo = extract_profile_photo(doc)
         for number, page in enumerate(doc):
             if page.rect.width * page.rect.height > 2_000_000:
                 raise ValueError("Page dimensions too large")
@@ -56,7 +82,7 @@ def extract(data, name):
             drawings = [{"rect": list(d["rect"]), "fill": d.get("fill"), "color": d.get("color"), "width": d.get("width")} for d in page.get_drawings()[:100]]
             pages.append({"page": number+1, "width": page.rect.width, "height": page.rect.height, "spans": spans[:800], "drawings": drawings, "images": [{"bbox": list(x["bbox"]), "width": x["width"], "height": x["height"]} for x in page.get_image_info()[:20]]})
         doc.close()
-        return {"text": "\n\n".join(texts)[:60000], "textPages": texts, "previews": previews, "layout": {"pages": pages}, "warnings": warnings + ["Fonts may be substituted. Embedded photos, icons and decorative graphics are recorded but not automatically rebuilt."]}
+        return {"text": "\n\n".join(texts)[:60000], "textPages": texts, "profilePhoto": photo, "previews": previews, "layout": {"pages": pages}, "warnings": warnings + ["Fonts may be substituted. Embedded photos, icons and decorative graphics are recorded but not automatically rebuilt."]}
     if lower.endswith(".docx"):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if sum(i.file_size for i in z.infolist()) > 40*1024*1024 or len(z.infolist()) > 2000:

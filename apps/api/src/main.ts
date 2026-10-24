@@ -27,6 +27,7 @@ class API{
  }
  @Post('assets')@UseInterceptors(FileInterceptor('file',{limits:{fileSize:15*1024*1024,files:1}}))upload(@UploadedFile()f:Express.Multer.File){return this.store.upload(f)}
  @Get('assets/:id')async asset(@Param('id')id:string,@Res()res:Response){const f=await this.store.bytes(id);res.setHeader('Content-Type',f.mime);res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`);res.send(f.buffer)}
+ @Post('imports/:id/restructure')restructure(@Param('id')id:string){return this.store.restructureImport(id)}
  @Post('resumes/import')import(@Body()b:unknown){return this.store.queueImport(b)}
  @Post('profiles/master')profile(@Body()b:unknown){return this.store.confirmProfile(b)}
  @Post('templates')template(@Body()b:unknown){return this.store.template(b)}

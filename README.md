@@ -225,3 +225,20 @@ The Generate Resume stage now passes a **compact structured payload** to Ollama.
 - Does not automatically increase `OLLAMA_CONTEXT`, does not treat job requirements as verified personal skills, and continues enforcing `truthGuard` on every generated statement.
 
 After pulling, rebuild API: `docker compose up -d --build api` then retry Generate Resume. For best quality with previously failed PDF imports, review and confirm the individual facts in a newly imported Master Resume.
+
+### Why a newly generated Resume could contain only education
+
+Some older PDF imports preserved a whole page as one `Unparsed original text — review required` fact. If the user confirmed only that page but not their unverified Work Experience facts, the local model was intentionally prevented from using those unverified jobs. The old output could therefore contain only Education and repeated summary text, despite the original PDF containing relevant experience. Increasing the Ollama context is not the fix.
+
+The new recovery flow is **ประวัติจริง → เลือกผลนำเข้า → จัดโครงสร้างจาก PDF เดิม**. It creates a new import version by parsing the stored original PDF text without another AI call or upload. The original record and confirmed Master Resume remain untouched. Recovered items are grouped into Work, Education, Skills and Summary with the original source wording, and are **unverified** until the user reviews them. The application now blocks generating from a profile whose only verified facts are raw PDF-page placeholders.
+
+The PDF importer also extracts a small top-right portrait photo embedded in the source PDF (when present), stores it privately with the imported template, and includes it in new PDF/HTML previews. Old imports can recover their photo from the stored original asset when restructured. DOCX photo fidelity and exact custom layout reproduction remain outside the current simple renderer.
+
+After pulling this version rebuild all three services, because the document extractor was updated:
+
+```powershell
+git pull origin main
+docker compose up -d --build api document web
+```
+
+Choose the recovered import, review every job claim and skill level, check the verified boxes, tick the final confirmation, and save a **new** Master Resume version. Then select that Master Resume on the Generate page. A successful CI run verifies app behavior but does not imply that every resume claim is independently true.
