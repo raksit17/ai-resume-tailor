@@ -65,7 +65,9 @@ test('confirmed raw PDF facts get a review warning and remain visible in PDF and
  assert.ok(result.warnings.some(w=>w.includes('unparsed PDF')));
  assert.doesNotThrow(()=>truthGuard(rawProfile,result.tailored));
  const html=renderHTML(rawProfile,result.tailored,defaultTemplate);
- assert.ok(html.includes('Experience: Built 4 APIs.'));
+ assert.ok(html.includes('Built 4 APIs.'));
+ assert.ok(!html.includes('Unparsed original text — review required'));
+ assert.ok(!html.includes('Experience: Built 4 APIs.'))
  const docx=await renderDOCX(rawProfile,result.tailored,defaultTemplate);
  assert.ok(docx.length>1000);
 });
