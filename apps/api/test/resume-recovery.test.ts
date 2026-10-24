@@ -42,8 +42,8 @@ test('original PDF pages recover work, education and skills, not one unparsed fu
  assert.ok(profile.facts.some(f=>f.section==='work'&&f.group==='Realtech Company Limited'&&f.heading.includes('07/2020')));
  assert.ok(profile.facts.some(f=>f.section==='work'&&f.group==='Bangkok Web Solution'));
  assert.ok(profile.facts.some(f=>f.section==='education'&&f.group==='Example University'));
- assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail==='NestJS'));
- assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail==='PostgreSQL'));
+ assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail.startsWith('NestJS')));
+ assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail.startsWith('PostgreSQL')));
  assert.ok(profile.facts.every(f=>!f.verified));
  assert.ok(profile.facts.every(f=>f.source&&f.source.length<300));
  assert.ok(warnings.some(w=>w.includes('unverified')));
@@ -107,4 +107,60 @@ test('restructure keeps the original import and creates a new unverified version
   assert.equal(store.records.get('old-import').data.profile,undefined);
   assert.equal((await store.get(next.templateId,'template')).data.profilePhoto,'aGVsbG8=');
  }finally{await store.db.$disconnect();}
+});
+
+test('hard-wrapped work claims are one fact and software is not classified as language',()=>{
+ const p1=[
+ 'Example Engineer','Profile',
+ 'Backend Developer with strong backend experience. Skilled in',
+ 'NestJS and PostgreSQL for reliable APIs.',
+ 'Professional Experience','Backend Developer','Realtech Company Limited',
+ '07/2020 – 04/2024',
+ 'Improved performance by adding Redis caching, reducing repeated database queries and improving response time by',
+ '20-30%.',
+ 'Designed reliable data workflows across PostgreSQL, MySQL, and MongoDB to support reliable production',
+ 'operations.',
+ 'System Architecture & Development:',
+ 'Designed REST APIs for internal applications.',
+ 'Performance Optimization & Maintenance:',
+ 'Reduced server costs by 25% through database indexing.',
+ 'Education','Information Technology','Example University',
+ '08/2016 – 05/2020','Developed a school project that improved speed',
+ 'by 30%'
+ ].join('\n');
+ const p2=[
+ 'Key Skills','– LANGUAGES',
+ 'Thai                                  English',
+ 'Expert                                Competent',
+ '– SOFTWARE',
+ 'NestJS                            PostgreSQL                         Redis',
+ 'Expert                            Expert                             Proficient',
+ 'Laravel                            Django                            .NET Framework',
+ 'Competent                          Competent                         Competent',
+ 'Vue.js                             Docker                            Google Cloud Console',
+ 'Proficient                         Proficient                        Proficient',
+ 'Lens','Proficient'
+ ].join('\n');
+ const {profile}=recoverResumeFromText(p1+'\n'+p2,[p1,p2]);
+ const first=profile.facts.find(f=>f.section==='work'&&f.detail.includes('Redis caching'));
+ assert.ok(first);
+ assert.match(first!.detail,/time by 20-30%\./);
+ assert.match(first!.source,/time by\n20-30%\./);
+ assert.equal(profile.facts.filter(f=>f.detail==='20-30%.').length,0);
+ assert.ok(profile.facts.some(f=>f.section==='work'&&f.detail.includes('production operations.')));
+ assert.ok(profile.facts.some(f=>f.section==='education'&&f.detail.includes('speed by 30%')));
+ assert.ok(profile.facts.some(f=>f.section==='summary'&&f.detail.includes('Skilled in NestJS')));
+ assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail==='NestJS — Expert'));
+ assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail==='Docker — Proficient'));
+ assert.ok(profile.facts.some(f=>f.section==='skills'&&f.detail==='Lens — Proficient'));
+ assert.ok(profile.facts.some(f=>f.section==='languages'&&f.detail==='Thai — Expert'));
+ assert.ok(profile.facts.some(f=>f.section==='languages'&&f.detail==='English — Competent'));
+ assert.ok(!profile.facts.some(f=>f.section==='languages'&&/NestJS|Docker/.test(f.detail)));
+ assert.ok(!profile.facts.some(f=>f.detail==='Expert'||f.detail==='Competent'||f.detail==='Proficient'));
+ const architecture=profile.facts.find(f=>f.detail==='Designed REST APIs for internal applications.');
+ const performance=profile.facts.find(f=>f.detail.startsWith('Reduced server costs'));
+ assert.ok(architecture?.heading.includes('System Architecture'));
+ assert.ok(performance?.heading.includes('Performance Optimization'));
+ assert.ok(!performance?.heading.includes('System Architecture'));
+ assert.ok(profile.facts.every(f=>f.verified===false));
 });

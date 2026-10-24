@@ -242,3 +242,19 @@ docker compose up -d --build api document web
 ```
 
 Choose the recovered import, review every job claim and skill level, check the verified boxes, tick the final confirmation, and save a **new** Master Resume version. Then select that Master Resume on the Generate page. A successful CI run verifies app behavior but does not imply that every resume claim is independently true.
+
+
+### PDF recovery review quality improvements
+
+If an older import shows dozens of identical "discarded claim without a matching original quotation" warnings, they belong to the **old AI extraction**. The Master Resume created from it may still contain page-sized placeholders. Recovered imports keep a separate version and have no automatic verification. In **ประวัติจริง**, select the saved original import or a previous recovery, then click **จัดโครงสร้างจาก PDF เดิม** again to use the current deterministic recovery parser; this does not require uploading the PDF again.
+
+The recovery parser now combines PDF hard-wrapped paragraphs and bullets instead of saving fragments such as "20-30%." by themselves, maps the "LANGUAGES" and "SOFTWARE" tables to separate sections, and associates adjacent skill proficiency cells with each named skill. It does not infer missing skills or mark any fact verified. Review each grouped claim and skill rating before confirmation.
+
+The review UI groups repeated import warnings, shows a verified-fact counter, and supports section/search/unverified filters. Saving a new Master Resume makes it the selected profile for the Generate view and clears a stale failed-task banner. The backend still blocks trying to generate a Resume when the only verified evidence is an unparsed whole-page placeholder. Existing saved records and PDF originals remain unchanged.
+
+To refresh all affected services:
+
+git pull origin main
+docker compose up -d --build api web
+
+After recovery, verify the relevant **work** / **skills** / **education** facts and save a **new** Master Resume, then generate from that saved version. Do not just retry the old failed Tailor task: its queued input still references the old Master Resume ID.
