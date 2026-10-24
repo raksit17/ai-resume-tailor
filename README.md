@@ -195,3 +195,19 @@ git pull origin main
 docker compose up -d --build api web
 ```
 Then open `http://127.0.0.1:5180/` (not `/v1/state`). Existing imports are selectable from **ประวัติจริง** > **เลือกผลนำเข้า**. If older AI imports contain unparsed facts, verify the source text before confirming your Master Resume.
+
+
+### Generate Resume: duplicate fact references
+
+Local models may produce several distinct resume bullets using one verified `sourceFactId`. Before saving a generated resume, `reconcileTailoredDraft()` consolidates distinct bullets into **one item per verified fact**, retaining each bullet on its own line and deduplicating identical text. The strict `truthGuard` still validates every citation and disallows unsupported numbers. Consolidations appear in the new revision's `warnings` and require human review.
+
+Legacy imports containing one `Unparsed original text — review required` page-sized fact can now generate a draft without failing solely on repeated citations. They are not a substitute for structured facts: **re-import the original PDF** with the updated importer and review the separate, unverified source lines in Master Resume before approving. Newly recovered fallback evidence is split into small verbatim source lines rather than one page-sized fact. The original imports and approved snapshots are not mutated.
+
+`GET /v1/state` is a JSON API route, not the frontend UI; open the application at `http://127.0.0.1:5180/`.
+
+Update the Docker backend and frontend with:
+
+```powershell
+git pull origin main
+docker compose up -d --build api web
+```

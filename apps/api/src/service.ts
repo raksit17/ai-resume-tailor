@@ -8,6 +8,7 @@ import * as cheerio from 'cheerio';
 import {ai} from './ai';
 import {importResumeFacts} from './document-import';
 import {templateFromLayout} from './template-extraction';
+import {reconcileTailoredDraft} from './tailor-reconcile';
 import {defaultTemplate,profileSchema,factSchema,templateSchema,jobSchema,tailoredSchema,truthGuard,matchSkills} from './schema';
 import {renderHTML,renderPDF,renderDOCX} from './render';
 import {publicGet} from './net';
@@ -120,9 +121,9 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   if(type==='tailor'){
    const p=await this.get(input.profileId,'profile');const j=await this.get(input.jobId,'job');const t=await this.get(input.templateId,'template');
    const profile=profileSchema.parse(p.data.profile);const verified=profile.facts.filter(f=>f.verified);if(!verified.length)throw new Error('Confirm at least one fact first');
-   const out=await ai(tailoredSchema,'Select and rewrite ONLY verified facts to suit this job. Each item must cite its original sourceFactId. Summary must cite supporting fact IDs. Keep scope, seniority, dates, numbers and meaning unchanged. You may omit/reorder facts, not add technologies from the JD. targetRole is a desired role, never rewrite historical job titles. Include gaps in notes. User editing instructions apply only when consistent with facts.',{facts:verified,job:j.data,prompt:input.prompt,maxPages:input.maxPages,previous:input.previous||null});
-   const warnings=truthGuard(profile,out.value);const matching=matchSkills(profile,jobSchema.parse(j.data));
-   const resume=await this.put('resume',{request:{profileId:input.profileId,jobId:input.jobId,templateId:input.templateId,prompt:input.prompt,maxPages:input.maxPages},parentId:input.parentId||null,profile,job:j.data,template:t.data,tailored:out.value,warnings,matching,model:out.model,digest:out.digest,promptVersion:'tailor-v1',generatedAt:new Date().toISOString()});return {resumeId:resume.id};
+   const out=await ai(tailoredSchema,'Select and rewrite ONLY verified facts to suit this job. Use every sourceFactId at most once in items; combine related claims for the same fact into one newline-separated item. Summary must cite supporting fact IDs. Keep scope, seniority, dates, numbers and meaning unchanged. You may omit/reorder facts, not add technologies from the JD. targetRole is a desired role, never rewrite historical job titles. Include gaps in notes. User editing instructions apply only when consistent with facts.',{facts:verified,job:j.data,prompt:input.prompt,maxPages:input.maxPages,previous:input.previous||null});
+   const {tailored,warnings}=reconcileTailoredDraft(profile,out.value);const matching=matchSkills(profile,jobSchema.parse(j.data));
+   const resume=await this.put('resume',{request:{profileId:input.profileId,jobId:input.jobId,templateId:input.templateId,prompt:input.prompt,maxPages:input.maxPages},parentId:input.parentId||null,profile,job:j.data,template:t.data,tailored,warnings,matching,model:out.model,digest:out.digest,promptVersion:'tailor-v2-citation-consolidation',generatedAt:new Date().toISOString()});return {resumeId:resume.id};
   }
   if(type==='export'){
    const r=await this.get(input.resumeId,'resume');const data=r.data;truthGuard(data.profile,data.tailored);

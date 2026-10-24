@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {splitResume,importResumeFacts,MAX_CHUNK_BYTES} from '../src/document-import';
+import {splitResume,importResumeFacts,fallbackFacts,MAX_CHUNK_BYTES} from '../src/document-import';
 import {templateFromLayout} from '../src/template-extraction';
 import {ai} from '../src/ai';
 import {jobSchema} from '../src/schema';
@@ -86,4 +86,21 @@ test('oversized AI requests are rejected before network I/O',async()=>{
   ai(jobSchema,'Extract job requirements',{source:'x'.repeat(200000)},[],'oversize-test'),
   /input is too large/
  );
+});
+
+test('fallback splits a failed PDF-page extraction into granular unverified source lines',()=>{
+ const lines=[
+  'Profile',
+  'Backend Engineer with NestJS experience.',
+  'Professional Experience',
+  'Built 12 backend API endpoints.',
+  'Implemented database caching.',
+  'Education',
+  'Bachelor of Technology'
+ ];
+ const facts=fallbackFacts({page:2,part:1,text:lines.join('\n')});
+ assert.equal(facts.length,4);
+ assert.deepEqual(facts.map(f=>f.section),['summary','work','work','education']);
+ assert.ok(facts.every(f=>f.verified===false&&f.source===f.detail));
+ assert.ok(facts.every(f=>f.group==='Page 2'));
 });
