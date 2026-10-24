@@ -25,7 +25,7 @@ class DocumentTests(unittest.TestCase):
     def test_embedded_header_photo_is_recovered(self):
         doc = fitz.open()
         p = doc.new_page()
-        p.insert_text((40,60), "Example Engineer")
+        p.insert_text((40,60), "Example Engineer with backend development experience and document preview testing")
         image = Image.new('RGB',(100,100),(28,85,120))
         b = io.BytesIO()
         image.save(b,format='PNG')
