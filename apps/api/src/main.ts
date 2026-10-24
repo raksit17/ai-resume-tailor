@@ -12,7 +12,7 @@ class Errors implements ExceptionFilter{catch(e:any,host:ArgumentsHost){const re
 class API{
  constructor(@Inject(Store) private readonly store:Store){}
  @Get('health')health(){return {ok:true,service:'Local AI Resume Tailor'}}
- @Get('state')async state(){return {profiles:await this.store.list('profile'),templates:await this.store.list('template'),jobs:await this.store.list('job'),resumes:await this.store.list('resume'),evidence:await this.store.list('evidence'),applications:await this.store.list('application'),imports:await this.store.list('import'),tasks:await this.store.db.task.findMany({orderBy:{createdAt:'desc'},take:50})};}
+ @Get('state')async state(){return {profiles:await this.store.list('profile'),templates:await this.store.list('template'),jobs:await this.store.list('job'),resumes:await this.store.list('resume'),evidence:await this.store.list('evidence'),applications:await this.store.list('application'),imports:(await this.store.list('import')).map(r=>{const data=r.data as any;return {...r,data:{profile:data.profile,templateId:data.templateId,assetId:data.assetId,warnings:data.warnings||[],diagnostics:data.diagnostics||{}}};}),tasks:await this.store.db.task.findMany({orderBy:{createdAt:'desc'},take:50})};}
  @Post('assets')@UseInterceptors(FileInterceptor('file',{limits:{fileSize:15*1024*1024,files:1}}))upload(@UploadedFile()f:Express.Multer.File){return this.store.upload(f)}
  @Get('assets/:id')async asset(@Param('id')id:string,@Res()res:Response){const f=await this.store.bytes(id);res.setHeader('Content-Type',f.mime);res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`);res.send(f.buffer)}
  @Post('resumes/import')import(@Body()b:unknown){return this.store.queueImport(b)}

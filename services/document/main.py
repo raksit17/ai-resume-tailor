@@ -56,7 +56,7 @@ def extract(data, name):
             drawings = [{"rect": list(d["rect"]), "fill": d.get("fill"), "color": d.get("color"), "width": d.get("width")} for d in page.get_drawings()[:100]]
             pages.append({"page": number+1, "width": page.rect.width, "height": page.rect.height, "spans": spans[:800], "drawings": drawings, "images": [{"bbox": list(x["bbox"]), "width": x["width"], "height": x["height"]} for x in page.get_image_info()[:20]]})
         doc.close()
-        return {"text": "\n\n".join(texts)[:60000], "previews": previews, "layout": {"pages": pages}, "warnings": warnings + ["Fonts may be substituted. Embedded photos, icons and decorative graphics are recorded but not automatically rebuilt."]}
+        return {"text": "\n\n".join(texts)[:60000], "textPages": texts, "previews": previews, "layout": {"pages": pages}, "warnings": warnings + ["Fonts may be substituted. Embedded photos, icons and decorative graphics are recorded but not automatically rebuilt."]}
     if lower.endswith(".docx"):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if sum(i.file_size for i in z.infolist()) > 40*1024*1024 or len(z.infolist()) > 2000:

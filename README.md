@@ -158,3 +158,27 @@ python -m unittest -v
 - Job-Watcher contract checked from `raksit17/job-watcher/src/jobs/jobs.controller.ts` and `jobs.service.ts` on 2026-10-24
 
 PyMuPDF มีเงื่อนไข AGPL/commercial licensing ตรวจความเหมาะสมก่อนนำโปรเจกต์ไปเผยแพร่หรือขาย
+
+
+## Resilient low-token Resume / Template import (October 2026)
+
+The import pipeline is intentionally **hybrid** and does not send a full PDF layout or image to Ollama by default.
+
+1. The document service extracts each PDF page as `textPages`, plus the original full geometry and preview. DOCX and image imports still use the existing OCR/OOXML path.
+2. `apps/api/src/document-import.ts` splits page text into UTF-8 byte-bounded fragments (without throwing away any document text). Each fragment gets a separate, limited Ollama extraction call; duplicate facts are filtered, every fact remains `verified=false`, and source quotations must match the original fragment.
+3. When a fragment cannot be parsed by the model (unavailable model, invalid JSON, oversized output), an unverified **original-text** fact is retained for human review. The import still completes; warnings and fragment counts appear in the Master Resume tab.
+4. `apps/api/src/template-extraction.ts` computes a constrained editable Template from measured PDF/DOCX geometry, fonts and colors **without AI**. The original full layout stays in stored import/template records. Optional `TEMPLATE_AI_REFINEMENT=true` sends only compact design metrics and falls back to the deterministic template if Ollama fails.
+5. The shared `ai.ts` checks a conservative request-size estimate **before** calling Ollama, avoids echoing the JSON schema in the system prompt, and can log per-call actual prompt token counts using `AI_DEBUG_TOKENS=true` (without logging resume text).
+6. The workspace state API no longer ships imported original PDF screenshots, extracted text or raw geometry to the browser on every refresh. Those remain stored server-side.
+
+The importer targets reliability on `OLLAMA_CONTEXT=8192`, rather than asking the model to read a 100K-token design payload. These are guardrails, not a guarantee of zero model errors: actual image and JSON tokenizer costs vary by model. `AI_DEBUG_TOKENS=true` helps tune the budgets from real `prompt_eval_count` values.
+
+### Configuration
+
+```env
+OLLAMA_CONTEXT=8192
+TEMPLATE_AI_REFINEMENT=false
+AI_DEBUG_TOKENS=false
+```
+
+After pulling the update, rebuild the API and document containers to load the new extraction behavior: `docker compose up -d --build api document web`. Stored Master Resume profiles and templates are not reset. During import, review any unparsed text fragments and confirm verified facts before tailoring.

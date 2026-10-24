@@ -6,6 +6,8 @@ import path from 'node:path';
 import {z} from 'zod';
 import * as cheerio from 'cheerio';
 import {ai} from './ai';
+import {importResumeFacts} from './document-import';
+import {templateFromLayout} from './template-extraction';
 import {defaultTemplate,profileSchema,factSchema,templateSchema,jobSchema,tailoredSchema,truthGuard,matchSkills} from './schema';
 import {renderHTML,renderPDF,renderDOCX} from './render';
 import {publicGet} from './net';
@@ -80,11 +82,33 @@ export class Store implements OnModuleInit,OnModuleDestroy{
   if(type==='import'){
    const extracted=await this.parseAsset(input.assetId);
    if(!extracted.text?.trim())throw new Error('No readable text. Check OCR language or supply a clearer file.');
-   const result=await ai(profileSchema,'Extract facts exactly from the resume. Preserve actual employment titles and dates in group/heading. Each distinct claim is a fact. Give unique IDs; verified=false for ALL facts. source must quote source text. Do not infer skills from job titles.',{text:extracted.text.slice(0,35000)});
-   result.value.facts=result.value.facts.map((f:any,i:number)=>({...f,id:`fact_${i+1}`,verified:false}));
-   const design=await ai(templateSchema,'Reconstruct an editable template from the original screenshot and measured layout. Use only supported schema fields; locked=false. Preserve colors/layout as closely as possible. Do not generate HTML/CSS.',{measurements:extracted.layout,baseline:defaultTemplate},extracted.previews?.slice(0,1)||[]);
-   const t=await this.put('template',{config:design.value,sourceAssetId:input.assetId,measurements:extracted.layout,warnings:extracted.warnings});
-   const imported=await this.put('import',{profile:result.value,templateId:t.id,assetId:input.assetId,extraction:extracted,model:result.model,digest:result.digest});return {importId:imported.id,templateId:t.id};
+   // Read each document fragment in its own bounded AI call. A failure on one
+   // fragment retains its original words as an unverified manual-review fact.
+   const content=await importResumeFacts(extracted.text,extracted.textPages);
+   // Layout reconstruction is deterministic by default: no full geometry or
+   // page screenshot is ever sent to Ollama.
+   const baseline=templateFromLayout(extracted.layout);
+   let design=baseline.config;
+   let designMethod='geometry';
+   const warnings=[...(extracted.warnings||[]),...content.warnings,...baseline.warnings];
+   if(process.env.TEMPLATE_AI_REFINEMENT==='true'){
+    try{
+     const refinement=await ai(templateSchema,
+      'Adjust ONLY the editable template fields using these compact measured metrics; locked=false. Do not generate CSS or HTML.',
+      {measurements:baseline.metrics,baseline:design},[],'template-refinement');
+     design=templateSchema.parse({...refinement.value,locked:false});
+     designMethod='ai-assisted';
+    }catch(e){
+     warnings.push(`Template AI refinement failed: ${(e as Error).message.slice(0,200)}. Geometry-based template was retained.`);
+    }
+   }
+   const t=await this.put('template',{config:design,sourceAssetId:input.assetId,measurements:extracted.layout,warnings,designMethod});
+   const imported=await this.put('import',{
+    profile:content.profile,templateId:t.id,assetId:input.assetId,extraction:extracted,
+    warnings,diagnostics:{contentChunks:content.chunksProcessed,fallbackChunks:content.fallbackCount,designMethod},
+    promptVersion:'chunked-import-v2'
+   });
+   return {importId:imported.id,templateId:t.id,warnings: warnings.length};
   }
   if(type==='analyze'){
    let source=input.text||'';let images:string[]=[];

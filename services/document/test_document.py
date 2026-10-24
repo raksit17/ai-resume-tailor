@@ -17,6 +17,7 @@ class DocumentTests(unittest.TestCase):
     def test_pdf_geometry_text_color_and_preview(self):
         r = extract(self.pdf, 'cv.pdf')
         self.assertIn('Backend Developer', r['text'])
+        self.assertIn('Backend Developer', r['textPages'][0])
         self.assertTrue(r['previews'])
         self.assertTrue(r['layout']['pages'][0]['drawings'])
         self.assertEqual(r['layout']['pages'][0]['spans'][0]['size'], 22)
