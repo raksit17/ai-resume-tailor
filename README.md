@@ -211,3 +211,17 @@ Update the Docker backend and frontend with:
 git pull origin main
 docker compose up -d --build api web
 ```
+
+
+### Tailor token budget fix (2026-10-24)
+
+The Generate Resume stage now passes a **compact structured payload** to Ollama. Previously, passing full saved job records sent the entire original job advertisement and parsed job requirements at the same time. Verified resume facts also sent `detail` and `source` (often the same PDF paragraph/page). These duplicated data caused "AI generic input is too large" even though the model context was 8192.
+
+`apps/api/src/tailor-payload.ts` now:
+- Uses only verified fact `id`, `section`, `group`, `heading` and `detail` fields. Original `source` stays in immutable PostgreSQL snapshots and remains available for verification.
+- Passes only `company`, `title`, `location`, `responsibilities`, `required`, `preferred` from the analyzed job; never the original `job.source` again.
+- Checks the same input-token budget as `ai.ts` **before** sending to Ollama, with a single reusable preflight calculation.
+- If a large legacy profile still does not fit, prioritizes verified facts matching the job and may use verbatim, relevant excerpts of page-sized facts. Omitted facts and shortened evidence are reported in generated-resume review warnings; the originals never change.
+- Does not automatically increase `OLLAMA_CONTEXT`, does not treat job requirements as verified personal skills, and continues enforcing `truthGuard` on every generated statement.
+
+After pulling, rebuild API: `docker compose up -d --build api` then retry Generate Resume. For best quality with previously failed PDF imports, review and confirm the individual facts in a newly imported Master Resume.
