@@ -258,3 +258,17 @@ git pull origin main
 docker compose up -d --build api web
 
 After recovery, verify the relevant **work** / **skills** / **education** facts and save a **new** Master Resume, then generate from that saved version. Do not just retry the old failed Tailor task: its queued input still references the old Master Resume ID.
+
+
+### Resume coverage and repeated work headings fix (October 2026)
+
+Previously a model could select almost exclusively Work Experience facts. The PDF renderer then printed the same position title on every fact, pushing Skills and Education past the requested page budget. This made two-page Full-Stack CVs repetitive and excluded verified skill evidence.
+
+New Generate flow:
+
+1. The model still produces a strictly cited structured draft, validated by the existing truth guard.
+2. `composeResume` selects job-relevant facts per employer with page-dependent bullet limits and restores verified Skills, Education and Languages that the model omitted. This is **not** a source of new claims: every restored item uses the verbatim, user-verified original fact and retains its `sourceFactId`. Unverified skills remain excluded. Review warnings report restored sections and intentionally shortened employer bullets.
+3. HTML/PDF and DOCX group work evidence by employer and original role/date once, then present concise bullet lists. Skill evidence is presented compactly. Education and language schools are grouped instead of printing duplicate headings.
+4. Original profiles, imports and past Resume revisions are immutable. Only newly generated versions use the updated composition.
+
+Regenerate, do not download a previously created PDF. Confirm the current Master Resume has checked Work, Skills and Education evidence, then select the desired analyzed job and click Generate Resume. Export the new version and verify the requested PDF page count.

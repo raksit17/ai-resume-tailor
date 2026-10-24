@@ -9,6 +9,7 @@ import {ai} from './ai';
 import {importResumeFacts} from './document-import';
 import {templateFromLayout} from './template-extraction';
 import {reconcileTailoredDraft} from './tailor-reconcile';
+import {composeResume} from './resume-compose';
 import {recoverResumeFromText} from './resume-recovery';
 import {buildTailorPayload,TAILOR_INSTRUCTION} from './tailor-payload';
 import {defaultTemplate,profileSchema,factSchema,templateSchema,jobSchema,tailoredSchema,truthGuard,matchSkills} from './schema';
@@ -150,9 +151,11 @@ export class Store implements OnModuleInit,OnModuleDestroy{
    if(verified.every(f=>/unparsed original text|original text.*review/i.test(f.heading)||f.detail.length>1500))throw new Error('Only unparsed PDF-page evidence is verified. Open ประวัติจริง, choose the original import and click จัดโครงสร้างจาก PDF เดิม, then verify work, skills and education facts before Generate.');
    const compact=buildTailorPayload(profile,j.data,input.prompt,input.maxPages,input.previous||null);
    const out=await ai(tailoredSchema,TAILOR_INSTRUCTION,compact.data,[],'tailor');
-   const {tailored,warnings:reconciliationWarnings}=reconcileTailoredDraft(profile,out.value);
-   const warnings=[...new Set([...compact.warnings,...reconciliationWarnings])];const matching=matchSkills(profile,jobSchema.parse(j.data));
-   const resume=await this.put('resume',{request:{profileId:input.profileId,jobId:input.jobId,templateId:input.templateId,prompt:input.prompt,maxPages:input.maxPages},parentId:input.parentId||null,profile,job:j.data,template:t.data,tailored,warnings,matching,model:out.model,digest:out.digest,promptVersion:'tailor-v3-compact-input',generatedAt:new Date().toISOString()});return {resumeId:resume.id};
+   const reconciled=reconcileTailoredDraft(profile,out.value);
+   const composed=composeResume(profile,reconciled.tailored,j.data,input.maxPages);
+   const tailored=composed.tailored;
+   const warnings=[...new Set([...compact.warnings,...reconciled.warnings,...composed.warnings])];const matching=matchSkills(profile,jobSchema.parse(j.data));
+   const resume=await this.put('resume',{request:{profileId:input.profileId,jobId:input.jobId,templateId:input.templateId,prompt:input.prompt,maxPages:input.maxPages},parentId:input.parentId||null,profile,job:j.data,template:t.data,tailored,warnings,matching,model:out.model,digest:out.digest,promptVersion:'tailor-v4-section-coverage',generatedAt:new Date().toISOString()});return {resumeId:resume.id};
   }
   if(type==='export'){
    const r=await this.get(input.resumeId,'resume');const data=r.data;truthGuard(data.profile,data.tailored);
