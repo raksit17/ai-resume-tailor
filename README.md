@@ -182,3 +182,16 @@ AI_DEBUG_TOKENS=false
 ```
 
 After pulling the update, rebuild the API and document containers to load the new extraction behavior: `docker compose up -d --build api document web`. Stored Master Resume profiles and templates are not reset. During import, review any unparsed text fragments and confirm verified facts before tailoring.
+
+### Fix: blank screen after importing a PDF (October 24)
+
+Older frontend code attempted to render `selectedImport.data.extraction.warnings` even though `/v1/state` deliberately removed the extraction payload. This caused an undefined-property render error after selecting an import.
+
+The app now uses an authenticated, on-demand `GET /v1/imports/:id` to show original text and previews. The lightweight state response excludes imported PDF geometry and previews entirely. The original geometry and immutable imports remain in PostgreSQL. UI regression coverage simulates selecting a previously imported Resume with a lightweight summary.
+
+Update without deleting your database or document volumes:
+```powershell
+git pull origin main
+docker compose up -d --build api web
+```
+Then open `http://127.0.0.1:5180/` (not `/v1/state`). Existing imports are selectable from **ประวัติจริง** > **เลือกผลนำเข้า**. If older AI imports contain unparsed facts, verify the source text before confirming your Master Resume.

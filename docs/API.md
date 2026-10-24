@@ -10,6 +10,7 @@ IDs returned by the API are UUIDs. `state` exposes the most recent 200 records o
 | GET /v1/state | Profiles, templates, jobs, resumes, evidence, imports, applications, recent tasks |
 | POST /v1/assets | Multipart field `file`; returns immutable asset record |
 | GET /v1/assets/:id | Authenticated file download |
+| GET /v1/imports/:id | Fetch one imported Resume's profile, preview and extracted text (layout not included); requires auth |
 | POST /v1/resumes/import | `{assetId}` → task; result `{importId, templateId}` |
 | POST /v1/profiles/master | `{profile, confirmed:true, parentId?, importId?}` → new profile snapshot |
 | POST /v1/templates | `{config, parentId?, unlock?}` → new immutable template; unlock required for a locked parent |
@@ -59,3 +60,7 @@ Original files and generated documents are in the `files` Docker volume. Postgre
 Schema is `apps/api/src/schema.ts`. Do not execute user/AI HTML or CSS. Renderer only accepts constrained fields and escapes document content. Playwright requests are blocked during PDF generation, and preview iframe has no script privileges.
 
 Images/icons and raw PDF geometry are retained in import metadata, not laid out as arbitrary components. Export PDF supports single/sidebar templates. DOCX export deliberately uses a readable single-column structure.
+
+### Import UI reliability
+
+The `/v1/state` endpoint returns lightweight import summaries (`profile.name`, diagnostics and warnings) and template summaries (`config`, source asset, method). It does **not** return `imports[].data.extraction` or `templates[].data.measurements` because PDF geometry is large and should remain server-side. The Vue UI loads selected import previews and source text from `GET /v1/imports/:id` on demand. Do not render `selectedImport.data.extraction.*` from state summaries. The route requires the regular Bearer API token. Opening `/v1/state` in a browser is a JSON API call, not the Vue application; the frontend URL is `/`.
